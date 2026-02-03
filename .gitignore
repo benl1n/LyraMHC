@@ -1,0 +1,8 @@
+.hydra/
+.idea/
+outputs/
+__pycache__/
+analysis/
+ESM/
+ESM_Features/
+*.pyc

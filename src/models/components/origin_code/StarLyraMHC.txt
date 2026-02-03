@@ -1,0 +1,123 @@
+import torch
+import torch.nn as nn
+from omegaconf import DictConfig
+
+from src.models.components.KRP import KernelResidualProjector
+from src.models.components.Lyra_encoder import Lyra
+from src.models.components.fusion import Hla2pepAttentionFusion
+from src.models.components.predictors import SequencePredictor
+from src.models.components.star_fusion import StarFusionHub
+
+
+def weight_initial(model):
+    for m in model.modules():
+        if isinstance(m, nn.Conv1d):
+            nn.init.kaiming_normal_(m.weight.data, mode='fan_out', nonlinearity='relu')
+            if m.bias is not None:
+                nn.init.constant_(m.bias.data, 0.0)
+        elif isinstance(m, nn.Linear):
+            nn.init.xavier_uniform_(m.weight.data)
+            if m.bias is not None:
+                nn.init.constant_(m.bias.data, 0.0)
+        elif isinstance(m, (nn.LayerNorm, nn.BatchNorm1d)):
+            if m.weight is not None:
+                nn.init.constant_(m.weight.data, 1.0)
+            if m.bias is not None:
+                nn.init.constant_(m.bias.data, 0.0)
+        elif isinstance(m, nn.Embedding):
+            nn.init.normal_(m.weight.data, mean=0.0, std=0.02)
+            if m.padding_idx is not None:
+                m.weight.data[m.padding_idx].zero_()
+
+
+class ViewProjector(nn.Module):
+    def __init__(self, target_dim):
+        super().__init__()
+
+        self.VIEW_DIMS = [20, 11, 23, 24]
+        self.num_views = len(self.VIEW_DIMS)
+
+        self.projections = nn.ModuleList([
+            nn.Linear(dim, target_dim) for dim in self.VIEW_DIMS
+        ])
+        self.norm = nn.LayerNorm(target_dim)
+        self.activation = nn.SiLU()
+        self.dropout = nn.Dropout(0.2)
+
+    def forward(self, view_list):
+        projected_views = []
+        for proj_layer, view in zip(self.projections, view_list):
+            # 确保输入是 [Batch, Dim, Len] -> 转置为 [Batch, Len, Dim] 进行线性映射
+            view = view.transpose(-1, -2)
+            x = proj_layer(view)
+            x = self.dropout(self.activation(self.norm(x)))
+            projected_views.append(x)
+        return projected_views
+
+
+class StarLyraMHC(nn.Module):
+    def __init__(self, cfg: DictConfig):
+        super(StarLyraMHC, self).__init__()
+        self.cfg = cfg
+        self.d_model = cfg.model.params.d_model
+        dropout = cfg.model.params.dropout
+
+        # 1. 视图投影器 (确定 20维 为 index 0)
+        self.view_projector = ViewProjector(self.d_model)
+        self.num_views = self.view_projector.num_views
+
+        self.hla_residual_layer = KernelResidualProjector(self.d_model)
+        self.pep_residual_layer = KernelResidualProjector(self.d_model)
+
+        self.hla_lyra_shared = Lyra(**cfg.model.encoder_hla)
+        self.pep_lyra_shared = Lyra(**cfg.model.encoder_pep)
+
+        self.hla_hub = StarFusionHub(num_latents=64, embed_dim=self.d_model, dropout=dropout)
+        self.pep_hub = StarFusionHub(num_latents=32, embed_dim=self.d_model, dropout=dropout)
+
+        self.fusion_stack = nn.ModuleList([
+            Hla2pepAttentionFusion(**cfg.model.fusion)
+        ])
+        self.predictor = SequencePredictor(input_size=self.d_model * 2)
+
+        self.apply(self._init_weights)
+
+    def _init_weights(self, m):
+        weight_initial(self)
+
+    def forward(self, hla_list, pep_list, tcr=None, return_features=False, view_mask=None):
+        batch_size = hla_list[0].shape[0]
+        proj_hla = self.view_projector(hla_list)
+        proj_pep = self.view_projector(pep_list)
+
+        # 优化点 3: KernelResidualProjector 内部已改为矩阵乘法
+        res_hla = self.hla_residual_layer(proj_hla)
+        res_pep = self.pep_residual_layer(proj_pep)
+
+        # 优化点 4: 高效 Batch Folding (利用 cat 代替 stack)
+        # List[B, L, D] -> [B*V, L, D] -> [B*V, D, L]
+        # 这样避免了产生 [B, V, L, D] 的 4D 张量，减少维度转换开销
+        hla_batch_cat = torch.cat(res_hla, dim=0)
+        pep_batch_cat = torch.cat(res_pep, dim=0)
+
+        _, hla_enc_flat = self.hla_lyra_shared(hla_batch_cat, return_embeddings=True)
+        _, pep_enc_flat = self.pep_lyra_shared(pep_batch_cat, return_embeddings=True)
+
+        hla_enc_flat = hla_enc_flat.transpose(1, 2)
+        pep_enc_flat = pep_enc_flat.transpose(1, 2)
+
+        encoded_hla_views = torch.chunk(hla_enc_flat, self.num_views, dim=0)
+        encoded_pep_views = torch.chunk(pep_enc_flat, self.num_views, dim=0)
+
+        hla_latents = self.hla_hub(encoded_hla_views, view_mask=view_mask)
+        pep_latents = self.pep_hub(encoded_pep_views, view_mask=view_mask)
+
+        for fusion in self.fusion_stack:
+            out = fusion(hla_latents, pep_latents)
+            # out = fusion(encoded_hla_views, encoded_pep_views)
+
+        out_mean = torch.mean(out, dim=-1)
+        out_max, _ = torch.max(out, dim=-1)
+        final_feat = torch.cat([out_mean, out_max], dim=-1)
+
+        return self.predictor(final_feat)

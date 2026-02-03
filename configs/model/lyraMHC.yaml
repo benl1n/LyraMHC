@@ -1,0 +1,54 @@
+# configs/model/lyraMHC.yaml
+
+params:
+  # 128
+  d_model: 64
+  # blosum 23
+  d_input: 20
+  # d_input 640
+  dropout: 0.2 # 0.1
+
+# (4, 3)     pgc_configs: [[1, 2]]   pgc_configs: [[1, 1]]
+encoder_hla:
+
+  model_dimension: ${..params.d_model}
+  pgc_configs: [[1, 1]]
+  num_s4: 5 # 3
+  # / 128
+  d_input: 64
+  # 64
+  d_output: 32
+  dropout: ${..params.dropout}
+
+encoder_pep:
+  model_dimension: ${..params.d_model}
+  pgc_configs: [[1, 1]]
+  num_s4: 4 # 2
+
+  d_input: 64
+
+  d_output: 32
+  dropout: ${..params.dropout}
+
+encoder_tcr:
+  model_dimension: ${..params.d_model}
+  pgc_configs: [[1, 9]]
+  num_s4: 9
+  d_input: 64
+  d_output: 32
+  dropout: ${..params.dropout}
+
+
+fusion:
+  d_model: ${..params.d_model}
+  # 128
+  hidden_dim: 64
+  # 4
+  n_heads: 4
+  dropout: 0.2
+#  pep2hla: false
+#  hla2pep: false
+
+predictor:
+  dropout: 0.2
+  # input_size: 128
