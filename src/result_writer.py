@@ -1,20 +1,14 @@
+# src/result_writer.py
+
 import os
-import math
-import numbers
-import numpy as np
 from hydra.core.hydra_config import HydraConfig
-
-from scipy.stats import spearmanr
-from sklearn.metrics import roc_auc_score
-from scipy.stats.stats import pearsonr
-
 
 #############################################################################################
 #
 # Write result
 #
 #############################################################################################
-from src.utlis import get_data
+from src.utils import get_data
 
 
 def weeekly_result_writer(result_dict, cfg):

@@ -1,47 +1,51 @@
 # configs/config.yaml
 defaults:
   - _self_
-  - model: lyraMHC        # 默认加载 configs/model/lyra_base.yaml
-#  - dataset: Anthem/transpMHC
+  - model: lyraMHC
+#   Anthem/transpMHC
   - dataset: transpMHC
-#  - paths: default
 
 experiment:
-  # LyraMHC
-  model: "StarLyraMHC"
-  name: "StarLyraMHC_beta3.0"
-
-  description: "start_lr: 1e-3 ,  batch 1024 dropout 0.2  S4D is 5 4 PGC 1 1"
+  # select model LyraMHC
+  model: "LyraMHC"
+  # Name of the experiment.
+  # This value determines the output directory:
+  # outputs/${train.name}/${experiment.name}/
+  # For example:
+  # outputs/transpMHC_train/Debug/
+  name: "TCR_Debug"
+  # Short experiment note
+  description: "blosum"
   training: "True"
 
-
-  tags: ["baseline", "lyra"]
   version: "1.0"
-  best_model_path: "outputs/transpMHC_train/physical/2026-01-05_19-30-47/checkpoints/best_model.pt"
+  best_model_path: "outputs/transpMHC_train/Debug/2026-03-13_21-15-57/checkpoints/best_model.pt"
 
 
 train:
   device: "cuda"
   cpu_device: "cpu"
-  seed: 2
-
-  #   'one_hot+blosum': one_hot_PLUS_blosum_encode, 43
-  #   'one_hot': one_hot_encode, 20
-  #  'physical': physical_encode, 11
-  #  'blosum': blosum_encode, 23
-  #  'blosum80': blosum80_encode, 25
-  #  'EDSSMat62': EDSSMat62_encode, 24
-  #  'N_blosum': N_blosum_encode 23
-
-  encoding_method: "EDSSMat62"
-  encoding_method2: "EDSSMat62"
-  # Anthem_train / transpMHC_train
+  seed: 6
+  # Feature encoding methods for sequence representation.
+  # Available options:
+  # one_hot / blosum / blosum80 / physical / EDSSMat62 / N_blosum / one_hot+blosum
+  encoding_method: "blosum"
+  encoding_method2: "blosum"
+  # train.name: Anthem_train / transpMHC_train
   name: "transpMHC_train"
-  # pMHC / TCR
+  # select task: pMHC / TCR
   task: "pMHC"
   data_path: "data/processed/${dataset.train.name}"
   train_step: "True"
 
+encode:
+  one_hot: 20
+  blosum: 23
+  blosum80: 25
+  physical: 11
+  EDSSMat62: 24
+  N_blosum: 23
+  one_hot+blosum: 43
 
 hydra:
   run:

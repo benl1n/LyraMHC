@@ -1,3 +1,4 @@
+# trainers/capsnet_trainer.py
 import datetime
 import torch
 from hydra.core.hydra_config import HydraConfig
@@ -6,14 +7,16 @@ from torch.optim import lr_scheduler
 
 from src.callbacks import ModelCheckPointCallBack, EarlyStopCallBack
 from src.data_provider.capsnet_data_provider import DataProvider
-# from src.data_provider.ESM_data_provider import ESM_DataProvider
 from src.encode import ENCODING_METHOD_MAP
 from src.logger import log_to_file, setup_logging
-from src.models.components.LyraMHC import weight_initial
+from src.models.components.weight_initial import weight_initial
+
+from src.registry import TRAINER_REGISTRY
 from src.trainers.train_base import BaseTrainer
-from src.utlis import get_data, get_model_save_path, count_parameters, set_reproducibility
+from src.utils import get_data, get_model_save_path, count_parameters, set_reproducibility
 
 
+@TRAINER_REGISTRY.register("Anthem_train")
 class CapsNet_Trainer(BaseTrainer):
 
     def __init__(self, cfg, model):
@@ -23,6 +26,7 @@ class CapsNet_Trainer(BaseTrainer):
 
     def batch_train(self, model, device, data):
         hla_a, hla_mask, hla_a2, hla_mask2, pep, pep_mask, pep2, pep_mask2, ic50, samples = data
+
         pred_ic50 = model(hla_a.to(device),
                           pep.to(device))
         loss = nn.BCELoss()(pred_ic50.to(self.cfg.train.cpu_device), ic50.view(ic50.size(0), 1))
@@ -134,26 +138,25 @@ class CapsNet_Trainer(BaseTrainer):
 
         cfg = self.cfg
         encoding_func = ENCODING_METHOD_MAP[cfg.train.encoding_method]
-        encoding_func2 = ENCODING_METHOD_MAP[cfg.train.encoding_method]
+        encoding_func2 = ENCODING_METHOD_MAP[cfg.train.encoding_method2]
 
-        train_file, test_file, _ = get_data(cfg.train.name,
-                                            cfg.train.task,
-                                            cfg.train.data_path)
+        train_file, test_file, _ = get_data(cfg.dataset.train.name, cfg.train.task, cfg.train.data_path)
 
         data_provider = []
         for p in range(cfg.dataset.params.base_model_count):
             temp_provider = DataProvider(train_file,
-                                             test_file,
-                                             cfg.train.name,
-                                             cfg.train.task,
-                                             cfg.train.data_path,
-                                             encoding_func,
-                                             encoding_func2,
-                                             cfg.dataset.train.batch_size,
-                                             max_len_hla=cfg.dataset.params.max_len_hla,
-                                             max_len_pep=cfg.dataset.params.max_len_pep,
-                                             model_count=cfg.dataset.params.model_count,
-                                             )
+                                         test_file,
+                                         cfg.dataset.train.name,
+                                         cfg.train.task,
+                                         cfg.train.data_path,
+                                         encoding_func,
+                                         encoding_func2,
+                                         cfg.dataset.train.batch_size,
+                                         max_len_hla=cfg.dataset.params.max_len_hla,
+                                         max_len_pep=cfg.dataset.params.max_len_pep,
+                                         model_count=cfg.dataset.params.model_count,
+
+                                         )
             data_provider.append(temp_provider)
 
         log_to_file('Traning samples', len(data_provider[0].train_samples[0]))

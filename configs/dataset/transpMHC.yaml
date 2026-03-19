@@ -6,65 +6,29 @@ params:
     max_len_pep: 15
     max_len_tcr: 27
 
-# 全局训练参数
-#train:
-#  name: "transpMHC_train"
-#  tcr_path: "outputs/transpMHC_train/2025-12-19_14-37-54/checkpoints/transpMHC_train"
-#  epochs: 1000
-#
-#  loss_delta: 1e-4
-#  dropout : 0.2
-#  batch_size: 1024
-#  grad_clip: 1.0
-#
-#  # optimizer
-#  start_lr: 1e-3
-#  weight_decay: 1e-6
-#
-#  # scheduler
-#  scheduler_patience: 4
-#  cooldown: 4
-#  min_lr: 1e-6
-#  scheduler_factor: 0.2
-#  factor: 0.2
-#
-#  # early_stop
-#  callback_patience: 10
-#  # ModelCheckPoint
-#  period: 1
-
 train:
-  name: "transpMHC_train"
-  epochs: 200
+  name: ${train.name}
+  tcr_path: "outputs/transpMHC_train/2025-12-19_14-37-54/checkpoints/transpMHC_train"
+  epochs: 1000
 
-  # 1. 稳定性控制
-  dropout: 0.2 # 稍微调低，因为星型结构自带正则化效果
-  batch_size: 1024  # 魏征建议：降低到 512，让模型更新更频繁，更有利于发掘细微特征
-  grad_clip: 0.5 # 更加严格的梯度裁剪，防止 Attention 梯度爆炸
   loss_delta: 1e-4
-  # 2. 学习率策略 (核心修改)
-  start_lr: 1e-3 # 降低一个数量级。1e-4 是 Transformer 结构的黄金起点 3e-4
-  weight_decay: 1e-3 # 提高到 1e-5，强制 14 个投影层不要学废特征
+  dropout : 0.2
+  batch_size: 1024
+  grad_clip: 1.0
 
-  # 3. 调度器调整
-  scheduler_patience: 8 # 给模型 8 个 epoch 的机会去磨合多模态特征
-  cooldown: 2
+  # optimizer
+  start_lr: 1e-3
+  weight_decay: 1e-6
+
+  # scheduler
+  scheduler_patience: 4
+  cooldown: 4
   min_lr: 1e-6
-  factor: 0.3 # 每次降级不要太狠，0.5 比 0.2 更温和
+  scheduler_factor: 0.2
+  factor: 0.2
 
-  # 4. 容错与早停
-  callback_patience: 15 # 这种大模型需要更久的观察期
+  # early_stop
+  callback_patience: 10
+  # ModelCheckPoint
   period: 1
-
-  # 5. 新增：Warmup 策略 (需要在 Trainer 代码里实现)
-  warmup_epochs: 15 # 前 5 个 epoch 学习率从 1e-6 线性升到 1e-4
-
-
-
-test:
-
-
-
-
-
 

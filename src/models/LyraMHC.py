@@ -1,67 +1,13 @@
 import torch
 import torch.nn as nn
 from omegaconf import DictConfig
-
-from src.models.components.Lyra_encoder import Lyra
 from src.models.components.fusion import LiteBiCrossAttentionFusion
 from src.models.components.predictors import SequencePredictor
+from src.models.components.preprocess import SequenceEncoder
+from src.registry import MODEL_REGISTRY
 
 
-def weight_initial(model):
-    for m in model.modules():
-        if isinstance(m, nn.Conv1d):
-            nn.init.kaiming_normal_(m.weight.data, mode='fan_out', nonlinearity='relu')
-            if m.bias is not None:
-                nn.init.constant_(m.bias.data, 0.0)
-
-        elif isinstance(m, nn.Linear):
-            nn.init.xavier_uniform_(m.weight.data)
-            if m.bias is not None:
-                nn.init.constant_(m.bias.data, 0.0)
-
-        elif isinstance(m, (nn.LayerNorm, nn.BatchNorm1d)):
-            if m.weight is not None:
-                nn.init.constant_(m.weight.data, 1.0)
-            if m.bias is not None:
-                nn.init.constant_(m.bias.data, 0.0)
-
-        elif isinstance(m, nn.Embedding):
-            nn.init.normal_(m.weight.data, mean=0.0, std=0.02)
-            if m.padding_idx is not None:
-                m.weight.data[m.padding_idx].zero_()
-
-        elif isinstance(m, nn.LSTM):
-            for name, param in m.named_parameters():
-                if 'bias' in name:
-                    nn.init.constant_(param, 0.0)
-                elif 'weight' in name:
-                    nn.init.orthogonal_(param)  # 正交初始化对 RNN 效果更好
-
-
-
-
-
-class SequenceEncoder(nn.Module):
-    def __init__(self, d_input, d_model, dropout, encoder_cfg):
-        super().__init__()
-        self.proj = nn.Sequential(
-            nn.Conv1d(d_input, d_model, kernel_size=1),
-            nn.BatchNorm1d(d_model),
-            nn.SiLU(),
-            nn.Dropout(dropout)
-        )
-        self.encoder = Lyra(**encoder_cfg)
-
-
-    def forward(self, x):
-        # x: (B, C, L)
-        x = self.proj(x)
-        x = x.transpose(-1, -2)
-        _, out = self.encoder(x, return_embeddings=True)
-        return out
-
-
-
+@MODEL_REGISTRY.register("LyraMHC")
 class LyraMHC(nn.Module):
     def __init__(self, cfg: DictConfig):
 
@@ -75,7 +21,6 @@ class LyraMHC(nn.Module):
         fusion_cfg = cfg.model.fusion
         predictor_cfg = cfg.model.predictor
 
-
         self.hla_encoder = SequenceEncoder(d_input, d_model, dropout, cfg.model.encoder_hla)
         self.pep_encoder = SequenceEncoder(d_input, d_model, dropout, cfg.model.encoder_pep)
 
@@ -84,7 +29,6 @@ class LyraMHC(nn.Module):
             self.fusion_stack_tcr = nn.ModuleList([
                 LiteBiCrossAttentionFusion(**fusion_cfg)
             ])
-
         self.fusion_stack = nn.ModuleList([
             LiteBiCrossAttentionFusion(**fusion_cfg)
         ])
@@ -112,12 +56,9 @@ class LyraMHC(nn.Module):
             for fusion in self.fusion_stack_tcr:
                 out = fusion(tcr_out, out)
 
-
-
-
-        out_mean = torch.mean(out,dim=1)
-        out_max, _ = torch.max(out,dim=1)
-        all_out=torch.cat([out_mean,out_max], dim=-1)
+        out_mean = torch.mean(out, dim=1)
+        out_max, _ = torch.max(out, dim=1)
+        all_out = torch.cat([out_mean, out_max], dim=-1)
 
         if return_features:
             features = {
@@ -134,8 +75,6 @@ class LyraMHC(nn.Module):
 
         ic50 = self.predictor(all_out)
         return ic50
-
-
 
     def load_pretrained_weights(self, ckpt_path, freeze=True):
         print(f"load weight: {ckpt_path}")

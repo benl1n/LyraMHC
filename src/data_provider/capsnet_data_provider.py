@@ -2,7 +2,7 @@ import os
 import math
 import random
 import torch
-from src.utlis import get_data
+from src.utils import get_data
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 

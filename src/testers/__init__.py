@@ -1,14 +1,10 @@
-# src/trainers/__init__.py
-from .StarLyraMHC_tester import StarLyraMHC_Tester
-from .capsnet_tester import Legacytester
+# src/testers/__init__.py
+from .capsnet_tester import Capsnet_tester
 from .transpMHC_tester import TranspMHC_Tester
-
+from ..registry import TESTER_REGISTRY
 
 
 def get_tester(cfg, model_cls):
-    if cfg.dataset.train.name == "Anthem_train":
-        return Legacytester(cfg, model_cls)
-    elif cfg.dataset.train.name == "transpMHC_train":
-        return StarLyraMHC_Tester(cfg, model_cls)
-    else:
-        raise ValueError(f"Unknown trainer type: {cfg.trainer.name}")
+    tester_name = cfg.dataset.train.name
+    tester_cls = TESTER_REGISTRY.get(tester_name)
+    return tester_cls(cfg, model_cls)

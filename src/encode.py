@@ -1,3 +1,4 @@
+# src/encode.py
 import torch
 
 PHYSICHE_PROPERTIES = {

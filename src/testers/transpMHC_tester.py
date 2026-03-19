@@ -1,3 +1,4 @@
+# testers/transpMHC_tester.py
 import os
 import numpy as np
 import pandas as pd
@@ -11,15 +12,16 @@ from torch.utils.data import DataLoader
 from sklearn.metrics import roc_auc_score, average_precision_score, accuracy_score, balanced_accuracy_score, f1_score, \
     matthews_corrcoef
 
-
 from src.encode import ENCODING_METHOD_MAP
 from src.logger import log_to_file, setup_logging
+from src.registry import TESTER_REGISTRY
 
 from src.testers.test_base import Basetester
 from src.data_provider.transpMHC_data_provider import PeptideHLADataset
-from src.utlis import get_data, get_model_save_path
+from src.utils import get_data, get_model_save_path
 
 
+@TESTER_REGISTRY.register("transpMHC_train")
 class TranspMHC_Tester(Basetester):
 
     def __init__(self, cfg, model):
@@ -90,8 +92,6 @@ class TranspMHC_Tester(Basetester):
                 for hla, pep, label, sample in tqdm(data_loader, desc="Testing"):
                     hla, pep, label = hla.to(self.device), pep.to(self.device), label.to(self.device)
 
-
-
                     pred = model(hla, pep)
 
                     all_preds.extend(pred.view(-1).cpu().tolist())
@@ -156,12 +156,11 @@ class TranspMHC_Tester(Basetester):
                         "HLA_sequence": all_hlas,
                         "pred": all_preds,
                         "label": all_labels,
-                        "peptide":all_peptides
+                        "peptide": all_peptides
                     })
-                    out_path = os.path.join( self.run_dir , f"fold_{fold}_predictions.csv")
+                    out_path = os.path.join(self.run_dir, f"fold_{fold}_predictions.csv")
                     df_out.to_csv(out_path, index=False)
                     print(f" Fold {fold} predictions saved to: {out_path}")
-
 
             # Metric Calculation
             y_true = np.array(all_labels)
@@ -182,7 +181,8 @@ class TranspMHC_Tester(Basetester):
         elif cfg.train.task == "TCR":
             with torch.no_grad():
                 for hla, pep, tcr, label, sample in tqdm(data_loader, desc="Testing"):
-                    hla, pep, tcr, label, sample = hla.to(self.device), pep.to(self.device),tcr.to(self.device) , label.to(self.device), sample
+                    hla, pep, tcr, label, sample = hla.to(self.device), pep.to(self.device), tcr.to(
+                        self.device), label.to(self.device), sample
                     pred = model(hla, pep, tcr)
 
                     all_preds.extend(pred.view(-1).cpu().tolist())
@@ -201,15 +201,12 @@ class TranspMHC_Tester(Basetester):
                 "MCC": matthews_corrcoef(y_true, y_pred)
             }
 
-
         return metrics, y_prob
 
     def fit(self):
         cfg = self.cfg
 
-
-
-        _, test_path =  get_data(cfg.train.name,
+        _, test_path = get_data(cfg.train.name,
                                 cfg.train.task,
                                 cfg.train.data_path)
         df = pd.read_csv(test_path)
@@ -236,13 +233,11 @@ class TranspMHC_Tester(Basetester):
         for fold in range(cfg.dataset.params.model_count):
             log_to_file("Test", f"Loading fold {fold}")
 
-
-
             model = self.model
             model.to(self.device)
 
             checkpoints_path = get_model_save_path(
-                cfg,  self.run_dir, fold, cfg.dataset.train.name, prefix="best"
+                cfg, self.run_dir, fold, cfg.dataset.train.name, prefix="best"
             )
 
             state_dict = torch.load(checkpoints_path, map_location=self.device)
@@ -260,13 +255,12 @@ class TranspMHC_Tester(Basetester):
                 {**metrics, "score": score}
             )
 
-
             if score > best_score:
                 best_score = score
                 best_fold = fold
                 best_state_dict = state_dict
 
-        best_model_path = os.path.join(self.run_dir , "best_model.pt")
+        best_model_path = os.path.join(self.run_dir, "best_model.pt")
         torch.save(best_state_dict, best_model_path)
 
         log_to_file(

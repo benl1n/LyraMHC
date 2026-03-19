@@ -30,6 +30,7 @@ class LiteBiCrossAttentionFusion(nn.Module):
             nn.Dropout(dropout)
         )
 
+        self.alpha = 0.3
         self.gate_hla = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.Sigmoid())
         self.gate_pep = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.Sigmoid())
 
@@ -72,7 +73,7 @@ class LiteBiCrossAttentionFusion(nn.Module):
 
         fused = self.gate_hla(hla2pep[:, :L_pep, :]) * hla2pep[:, :L_pep, :] \
               + self.gate_pep(pep2hla) * pep2hla \
-              + 0.3 * (pep2hla + hla2pep[:, :L_pep, :])
+              + self.alpha * (pep2hla + hla2pep[:, :L_pep, :])
 
         return self.fc_out(fused)  # [B, L_pep, D]
 
@@ -130,8 +131,6 @@ class Hla2pepAttentionFusion(nn.Module):
         attn_score2 = attn_score2 + self.rel_bias[:, :L_hla, :L_pep]
         attn_weight2 = attn_score2.softmax(dim=-1)
         hla2pep = torch.matmul(attn_weight2, v_pep).transpose(1, 2).contiguous().view(B, L_hla, -1)
-
-
         hla2pep = hla + self.ffn(self.norm_hla(hla2pep))
 
         return self.fc_out(hla2pep)  # [B, L_pep, D]

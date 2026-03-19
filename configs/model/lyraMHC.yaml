@@ -3,9 +3,7 @@
 params:
   # 128
   d_model: 64
-  # blosum 23
-  d_input: 20
-  # d_input 640
+  d_input: ${encode[${train.encoding_method}]}
   dropout: 0.2 # 0.1
 
 # (4, 3)     pgc_configs: [[1, 2]]   pgc_configs: [[1, 1]]
@@ -13,7 +11,7 @@ encoder_hla:
 
   model_dimension: ${..params.d_model}
   pgc_configs: [[1, 1]]
-  num_s4: 5 # 3
+  num_s4: 3 # 3
   # / 128
   d_input: 64
   # 64
@@ -23,7 +21,7 @@ encoder_hla:
 encoder_pep:
   model_dimension: ${..params.d_model}
   pgc_configs: [[1, 1]]
-  num_s4: 4 # 2
+  num_s4: 2 # 2
 
   d_input: 64
 
