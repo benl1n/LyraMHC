@@ -4,7 +4,7 @@
 This source code is from **"LyraMHC: A Unified State-Space Framework for Peptide-MHC Binding and TCR Recognition"**.
 LyraMHC is  a unified and highly decoupled framework that integrates state-space models (SSMs) with a bidirectional gated cross-attention (BGCA) mechanism for both pMHC and pMHC-TCR prediction. This framework support seven selectable encoding schemes, ranging from one-hot to blosum. 
 
-![Model Architecture](https://github.com/benl1n/LyraMHC/blob/main/framework.png)
+![Model Architecture](https://raw.githubusercontent.com/benl1n/LyraMHC/main/framework.png)
 
 ## 2. Datasets
 
