@@ -26,7 +26,7 @@ Install all required packages via:
 
 
 ```
-pip install -r requirement.txt
+pip install -r requirements.txt
 ```
 
 
@@ -98,6 +98,9 @@ To enable TCR–pMHC prediction, modify:
 
 ```
 # configs/config.yaml
+defaults:
+    ...
+  - dataset: transpMHC
 experiment:
   ...
   best_model_path: "outputs/transpMHC_train/blosum/2026-01-05_19-30-47/checkpoints/best_model.pt"
