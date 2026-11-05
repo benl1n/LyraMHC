@@ -9,7 +9,7 @@ params:
 train:
   name: ${train.name}
   tcr_path: "outputs/transpMHC_train/2025-12-19_14-37-54/checkpoints/transpMHC_train"
-  epochs: 1
+  epochs: 1000
 
   loss_delta: 1e-4
   dropout : 0.2

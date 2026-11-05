@@ -34,7 +34,7 @@ train:
   name: "transpMHC_train"
   # select task: pMHC / TCR
   task: "pMHC"
-  test_path: "outputs/transpMHC_train/Blosum80/2026-10-16_22-23-30/checkpoints"
+  test_path: "outputs/transpMHC_train/Blosum80/2026-10-09_15-48-10/checkpoints"
   data_path: "data/processed/${dataset.train.name}"
   # True
   train_step: "True"
