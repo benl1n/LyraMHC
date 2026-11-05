@@ -3,6 +3,9 @@ import torch
 import torch.nn as nn
 from einops import rearrange, repeat
 
+from src.utils import count_parameters
+
+
 class PGC(nn.Module):
     def __init__(self, d_model, expansion_factor=1.0, dropout=0.0):
         super().__init__()
@@ -23,6 +26,7 @@ class PGC(nn.Module):
         gate = v * x_conv
         x = self.norm(self.out_proj(gate))
         return x
+
 
 class DropoutNd(nn.Module):
     def __init__(self, p: float = 0.5, tie=True, transposed=True):
@@ -182,7 +186,6 @@ class Lyra(nn.Module):
             self.decoder = nn.Linear(model_dimension, d_output)
             self.dropout = nn.Dropout(final_dropout)
 
-
     def forward(self, x, return_embeddings=False):
         x = self.encoder(x)
         for pgc_layer in self.pgc_layers:
@@ -198,7 +201,6 @@ class Lyra(nn.Module):
         if not self.prenorm:
             x = norm(x.transpose(-1, -2)).transpose(-1, -2)
 
-
         x = x.transpose(-1, -2)
 
         embeddings = x
@@ -210,3 +212,4 @@ class Lyra(nn.Module):
             return x, embeddings
         else:
             return x
+

@@ -27,7 +27,11 @@ class TranspMHC_Tester(Basetester):
     def __init__(self, cfg, model):
         self.cfg = cfg
         self.model = model
-        self.run_dir = setup_logging(HydraConfig.get().runtime.output_dir)
+        if cfg.train.train_step == "True":
+            self.run_dir = setup_logging(HydraConfig.get().runtime.output_dir)
+        else:
+            self.run_dir = cfg.train.test_path
+        self.csv_dir = setup_logging(HydraConfig.get().runtime.output_dir)
         device = cfg.train.device if torch.cuda.is_available() else "cpu"
 
         self.target_hla = {"A*01:01", "A*02:01", "A*24:02", "B*08:01", "B*18:01"}
@@ -36,238 +40,252 @@ class TranspMHC_Tester(Basetester):
 
         super().__init__(model=model, config=cfg, device=device)
 
-    def get_real_length(self, pep_tensor):
-        """
-        Calculates the actual length of the peptide from a 20x15 one-hot tensor.
-        Assumes padding columns are all zeros.
-        pep_tensor shape: [20, 15]
-        """
-        # Sum across the amino acid dimension (dim=0)
-        # If a column is all zeros (padding), the sum is 0.
-        # If it's an amino acid, the sum is 1.
-        mask = torch.sum(pep_tensor, dim=0) > 0
-        return int(torch.sum(mask).item())
-
-    def save_peptide_features(self, pep_origin, pep_encoded, hla_type, length, save_root):
-        hla_dir = hla_type.replace("*", "_").replace(":", "_")
-        # Organize by HLA -> Length to keep structure clean
-        save_dir = os.path.join(save_root, hla_dir, f"len_{length}")
-        os.makedirs(save_dir, exist_ok=True)
-
-        # Transpose or keep as is? User said 20x15.
-        # Usually CSVs are easier to read as (Length x Features), but I will respect your 20x15 structure.
-        # Index names added for clarity.
-        aa_labels = [f"AA_{i}" for i in range(pep_origin.size(0))]  # 0-19
-        pos_labels_orgin = [f"Pos_{i}" for i in range(pep_origin.size(1))]  # 0-14
-        pos_labels_encode = [f"Pos_{i}" for i in range(pep_encoded.size(1))]
-
-        df_origin = pd.DataFrame(
-            pep_origin.detach().cpu().numpy(),
-            index=aa_labels,
-            columns=pos_labels_orgin
-        )
-
-        df_encoded = pd.DataFrame(
-            pep_encoded.detach().cpu().numpy(),
-            index=[f"AA_{i}" for i in range(pep_encoded.size(0))],
-            columns=pos_labels_encode
-        )
-
-        df_origin.to_csv(os.path.join(save_dir, "pep_origin.csv"))
-        df_encoded.to_csv(os.path.join(save_dir, "pep_encoded.csv"))
-
     def test(self, checkpoint, cfg, data_loader, fold):
         model = self.model
         model.eval()
 
+        task = cfg.train.task
+        if task not in {"pMHC", "TCR"}:
+            raise ValueError(f"Unsupported task: {task}")
+
         all_preds, all_labels = [], []
-        all_peptides, all_hlas = [], []
+        all_peptides, all_hlas, all_tcrs = [], [], []
 
-        # Track saved combinations: Set of tuples (HLA, Length)
-        saved_combinations = set()
-        total_required = len(self.target_hla) * len(self.target_lengths)
+        for batch in tqdm(data_loader, desc=f"Testing fold {fold}"):
+            if task == "pMHC":
+                hla, pep, label, sample = batch
 
-        if cfg.train.task == "pMHC":
-            with torch.no_grad():
-                for hla, pep, label, sample in tqdm(data_loader, desc="Testing"):
-                    hla, pep, label = hla.to(self.device), pep.to(self.device), label.to(self.device)
+                hla = hla.to(self.device)
+                pep = pep.to(self.device)
 
-                    pred = model(hla, pep)
+                pred = model(hla, pep)
 
-                    all_preds.extend(pred.view(-1).cpu().tolist())
-                    all_labels.extend(label.view(-1).cpu().tolist())
+                hla_seq, peptide_seq = sample
+            else:
+                hla, pep, tcr, label, sample = batch
 
-                    hla_seq, peptide_seq = sample
+                hla = hla.to(self.device)
+                pep = pep.to(self.device)
+                tcr = tcr.to(self.device)
 
-                    all_hlas.extend(hla_seq)
-                    all_peptides.extend(peptide_seq)
+                pred = model(hla, pep, tcr)
 
-                    # if len(saved_combinations) < total_required:
-                    #     features = model(hla, pep, return_features=True)
-                    #
-                    #     # Iterate through the batch
-                    #     for i in range(label.size(0)):
-                    #         y = label[i].item()
-                    #         hla_type = sample[i]
-                    #
-                    #         # Filter 1: Must be Positive
-                    #         if y != 1:
-                    #             continue
-                    #
-                    #         # Filter 2: Must be a Target HLA
-                    #         if hla_type not in self.target_hla:
-                    #             continue
-                    #
-                    #         pep_origin = features["pep_origin"][i]  # Shape [20, 15]
-                    #         pep_encoded = features["pep_encoded"][i]
-                    #
-                    #         # Filter 3: calculate real length and check range 8-15
-                    #         real_len = self.get_real_length(pep_origin)
-                    #         if real_len not in self.target_lengths:
-                    #             continue
-                    #
-                    #         # Filter 4: Check if we already have this (HLA, Length) pair
-                    #         combo_key = (hla_type, real_len)
-                    #         if combo_key in saved_combinations:
-                    #             continue
-                    #
-                    #
-                    #
-                    #         run_dir = HydraConfig.get().runtime.output_dir
-                    #         feature_root = os.path.join(run_dir, "features", f"fold_{fold}")
-                    #
-                    #         self.save_peptide_features(
-                    #             pep_origin,
-                    #             pep_encoded,
-                    #             hla_type,
-                    #             real_len,
-                    #             feature_root
-                    #         )
-                    #
-                    #         saved_combinations.add(combo_key)
-                    #         print(
-                    #             f"[Captured] Fold={fold} | HLA={hla_type} | Len={real_len} | Progress: {len(saved_combinations)}/{total_required}")
-                    #
-                    #         if len(saved_combinations) >= total_required:
-                    #             print(
-                    #                 "All target HLA-Length combinations captured. Stopping feature extraction (continuing metrics).")
-                    #             break
-                    df_out = pd.DataFrame({
-                        "HLA_sequence": all_hlas,
-                        "pred": all_preds,
-                        "label": all_labels,
-                        "peptide": all_peptides
-                    })
-                    out_path = os.path.join(self.run_dir, f"fold_{fold}_predictions.csv")
-                    df_out.to_csv(out_path, index=False)
-                    print(f" Fold {fold} predictions saved to: {out_path}")
+                hla_seq, peptide_seq, tcr_seq = sample
+                all_tcrs.extend(tcr_seq)
 
-            # Metric Calculation
-            y_true = np.array(all_labels)
-            y_prob = np.array(all_preds)
-            y_pred = (y_prob > 0.5).astype(int)
+            all_preds.extend(pred.reshape(-1).cpu().tolist())
+            all_labels.extend(label.reshape(-1).cpu().tolist())
+            all_hlas.extend(hla_seq)
+            all_peptides.extend(peptide_seq)
 
-            metrics = {
-                "AUC": roc_auc_score(y_true, y_prob),
-                "AUPR": average_precision_score(y_true, y_prob),
-                "ACC": accuracy_score(y_true, y_pred),
-                "BACC": balanced_accuracy_score(y_true, y_pred),
-                "F1": f1_score(y_true, y_pred),
-                "MCC": matthews_corrcoef(y_true, y_pred)
-            }
+            del pred, hla, pep
+            if task == "TCR":
+                del tcr
 
-            print(f"Fold {fold} Metrics: {metrics}")
+        if not all_preds:
+            raise ValueError("The test loader produced no predictions.")
 
-        elif cfg.train.task == "TCR":
-            with torch.no_grad():
-                for hla, pep, tcr, label, sample in tqdm(data_loader, desc="Testing"):
-                    hla, pep, tcr, label, sample = hla.to(self.device), pep.to(self.device), tcr.to(
-                        self.device), label.to(self.device), sample
-                    pred = model(hla, pep, tcr)
+        output = {
+            "HLA_sequence": all_hlas,
+            "pred": all_preds,
+            "label": all_labels,
+            "peptide": all_peptides,
+        }
 
-                    all_preds.extend(pred.view(-1).cpu().tolist())
-                    all_labels.extend(label.view(-1).cpu().tolist())
+        if task == "TCR":
+            output["tcr"] = all_tcrs
 
-            y_true = np.array(all_labels)
-            y_prob = np.array(all_preds)
-            y_pred = (y_prob > 0.5).astype(int)
+        df_out = pd.DataFrame(output)
 
-            metrics = {
-                "AUC": roc_auc_score(y_true, y_prob),
-                "AUPR": average_precision_score(y_true, y_prob),
-                "ACC": accuracy_score(y_true, y_pred),
-                "BACC": balanced_accuracy_score(y_true, y_pred),
-                "F1": f1_score(y_true, y_pred),
-                "MCC": matthews_corrcoef(y_true, y_pred)
-            }
+        filename = (
+            f"fold_{fold}_TCR_predictions.csv"
+            if task == "TCR"
+            else f"fold_{fold}_predictions.csv"
+        )
+        out_path = os.path.join(self.run_dir, filename)
+        df_out.to_csv(out_path, index=False)
 
-        return metrics, y_prob
+        y_true = np.asarray(all_labels)
+        y_prob = np.asarray(all_preds)
+        y_pred = (y_prob > 0.5).astype(int)
+
+        metrics = self._compute_metrics(y_true, y_prob, y_pred)
+
+        print(f"Fold {fold} predictions saved to: {out_path}")
+        print(f"Fold {fold} metrics: {metrics}")
+
+        return metrics, df_out
 
     def fit(self):
         cfg = self.cfg
+        model_count = cfg.dataset.params.model_count
 
-        _, test_path = get_data(cfg.train.name,
-                                cfg.train.task,
-                                cfg.train.data_path)
+        if model_count < 1:
+            raise ValueError("model_count 1")
+
+        _, test_path = get_data(
+            cfg.train.name,
+            cfg.train.task,
+            cfg.train.data_path,
+        )
         df = pd.read_csv(test_path)
 
         encoding_func = ENCODING_METHOD_MAP[cfg.train.encoding_method]
-
-        test_dataset = PeptideHLADataset(
-            df,
-            encoding_func,
-            cfg
-        )
+        test_dataset = PeptideHLADataset(df, encoding_func, cfg)
 
         test_loader = DataLoader(
             test_dataset,
-            batch_size=cfg.dataset.train.batch_size,
+            batch_size=128,
             shuffle=False,
-            num_workers=0
+            num_workers=0,
         )
-        best_score = -float("inf")
-        best_fold = -1
-        best_state_dict = None
-        results = []
 
-        for fold in range(cfg.dataset.params.model_count):
+        fold_results = []
+        fold_probs = []
+        checkpoint_paths = []
+        df_base = None
+
+        for fold in range(model_count):
             log_to_file("Test", f"Loading fold {fold}")
+
+            checkpoint_path = get_model_save_path(
+                cfg,
+                self.run_dir,
+                fold,
+                cfg.dataset.train.name,
+                prefix="best",
+            )
 
             model = self.model
             model.to(self.device)
 
-            checkpoints_path = get_model_save_path(
-                cfg, self.run_dir, fold, cfg.dataset.train.name, prefix="best"
+            state_dict = torch.load(
+                checkpoint_path,
+                map_location="cpu",
+                weights_only=True,
             )
-
-            state_dict = torch.load(checkpoints_path, map_location=self.device)
             model.load_state_dict(state_dict)
+            del state_dict
+            model.eval()
 
-            metrics, _ = self.test(checkpoints_path, cfg, test_loader, fold)
-            metrics["fold"] = fold
-            results.append(metrics)
+            with torch.inference_mode():
+                metrics, df_fold = self.test(
+                    checkpoint_path,
+                    cfg,
+                    test_loader,
+                    fold,
+                )
 
-            score = (metrics["AUC"] + metrics["AUPR"]) / 2
-            metrics["score"] = score
 
-            log_to_file(
-                "Fold result",
-                {**metrics, "score": score}
-            )
 
-            if score > best_score:
-                best_score = score
-                best_fold = fold
-                best_state_dict = state_dict
+            probs = df_fold["pred"].to_numpy(dtype=float)
 
-        best_model_path = os.path.join(self.run_dir, "best_model.pt")
-        torch.save(best_state_dict, best_model_path)
+            if not np.isfinite(probs).all():
+                raise ValueError(f"fold {fold}NaN or Inf")
 
-        log_to_file(
-            "Best model",
-            {
-                "best_fold": best_fold,
-                "best_score": best_score,
-                "model_path": best_model_path,
-            }
+            if ((probs < 0) | (probs > 1)).any():
+                raise ValueError(
+                    f"fold {fold}pred_prob"
+                )
+
+            if df_base is None:
+                df_base = df_fold.copy()
+            else:
+                if not np.array_equal(
+                        df_base["label"].to_numpy(),
+                        df_fold["label"].to_numpy(),
+                ):
+                    raise ValueError(f"fold {fold}")
+
+                if "sample_id" in df_base.columns:
+                    if "sample_id" not in df_fold.columns:
+                        raise ValueError(f"fold {fold}")
+
+                    if not np.array_equal(
+                            df_base["sample_id"].to_numpy(),
+                            df_fold["sample_id"].to_numpy(),
+                    ):
+                        raise ValueError(f"fold {fold}")
+
+            fold_probs.append(probs)
+            checkpoint_paths.append(checkpoint_path)
+
+            fold_metrics = dict(metrics)
+            fold_metrics["fold"] = fold
+            fold_results.append(fold_metrics)
+
+            log_to_file("Fold result", fold_metrics)
+
+        results_df = pd.DataFrame(fold_results)
+        results_df.to_csv(
+            os.path.join(self.csv_dir, "fold_metrics.csv"),
+            index=False,
         )
+
+        metric_names = ["AUC", "AUPR", "ACC", "BACC", "F1", "MCC"]
+        summary_rows = []
+
+        for name in metric_names:
+            values = results_df[name].to_numpy(dtype=float)
+            summary_rows.append({
+                "metric": name,
+                "mean": float(np.mean(values)),
+                "std": (
+                    float(np.std(values, ddof=1))
+                    if model_count > 1 else np.nan
+                ),
+            })
+
+
+        avg_probs = np.stack(fold_probs, axis=0).mean(axis=0)
+        y_true = df_base["label"].to_numpy()
+        threshold = 0.5
+        y_pred = (avg_probs >= threshold).astype(int)
+
+        ensemble_metrics = self._compute_metrics(
+            y_true, avg_probs, y_pred
+        )
+
+        pd.DataFrame([ensemble_metrics]).to_csv(
+            os.path.join(self.run_dir, "ensemble_metrics.csv"),
+            index=False,
+        )
+        log_to_file("Ensemble result", ensemble_metrics)
+
+        for fold, probs in enumerate(fold_probs):
+            df_base[f"fold_{fold}_prob"] = probs
+
+        df_base["ensemble_prob"] = avg_probs
+        df_base["ensemble_pred"] = y_pred
+        df_base.to_csv(
+            os.path.join(self.run_dir, "ensemble_predictions.csv"),
+            index=False,
+        )
+
+        pd.DataFrame({
+            "fold": np.arange(model_count),
+            "checkpoint_path": setup_logging(HydraConfig.get().runtime.output_dir),
+            "weight": np.full(model_count, 1.0 / model_count),
+            "threshold": threshold,
+        }).to_csv(
+            os.path.join(self.run_dir, "ensemble_manifest.csv"),
+            index=False,
+        )
+
+        print("\nEnsemble metrics:")
+        print(ensemble_metrics)
+
+        return {
+            "fold_metrics": results_df,
+            "ensemble_metrics": ensemble_metrics,
+        }
+
+    def _compute_metrics(self, y_true, y_prob, y_pred):
+        return {
+            "AUC": roc_auc_score(y_true, y_prob),
+            "AUPR": average_precision_score(y_true, y_prob),
+            "ACC": accuracy_score(y_true, y_pred),
+            "BACC": balanced_accuracy_score(y_true, y_pred),
+            "F1": f1_score(y_true, y_pred, zero_division=0),
+            "MCC": matthews_corrcoef(y_true, y_pred),
+        }

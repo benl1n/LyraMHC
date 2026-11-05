@@ -35,10 +35,6 @@ class EarlyStopCallBack(object):
 
 
 class ModelCheckPointCallBack(object):
-    """
-    Model checking and save best model accordign to loss value.
-    Save parameters ONLY.
-    """
 
     def __init__(self, model, save_path, period=1, delta=0, initial_min_loss=0):
         self.model = model

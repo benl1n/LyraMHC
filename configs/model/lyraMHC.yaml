@@ -10,6 +10,7 @@ params:
 encoder_hla:
 
   model_dimension: ${..params.d_model}
+  # 5
   pgc_configs: [[1, 1]]
   num_s4: 3 # 3
   # / 128
@@ -20,6 +21,7 @@ encoder_hla:
 
 encoder_pep:
   model_dimension: ${..params.d_model}
+  # 4
   pgc_configs: [[1, 1]]
   num_s4: 2 # 2
 

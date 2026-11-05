@@ -13,29 +13,30 @@ experiment:
   # outputs/${train.name}/${experiment.name}/
   # For example:
   # outputs/transpMHC_train/Debug/
-  name: "TCR_Debug"
-  # Short experiment note
-  description: "blosum"
-  training: "True"
+  name: "Debug"
+  # Short experiment note 6-2
+  description: "Debug"
 
   version: "1.0"
-  best_model_path: "outputs/transpMHC_train/Debug/2026-03-13_21-15-57/checkpoints/best_model.pt"
+  best_model_path: "outputs/transpMHC_train/one_hot_TCR/2026-10-17_18-07-03/checkpoints"
 
 
 train:
   device: "cuda"
   cpu_device: "cpu"
-  seed: 6
+  seed: 5
   # Feature encoding methods for sequence representation.
   # Available options:
   # one_hot / blosum / blosum80 / physical / EDSSMat62 / N_blosum / one_hot+blosum
-  encoding_method: "blosum"
-  encoding_method2: "blosum"
+  encoding_method: "blosum80"
+  encoding_method2: "blosum80"
   # train.name: Anthem_train / transpMHC_train
   name: "transpMHC_train"
   # select task: pMHC / TCR
   task: "pMHC"
+  test_path: "outputs/transpMHC_train/Blosum80/2026-10-16_22-23-30/checkpoints"
   data_path: "data/processed/${dataset.train.name}"
+  # True
   train_step: "True"
 
 encode:

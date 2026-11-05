@@ -4,17 +4,31 @@ import random
 import numpy as np
 import torch
 
-def set_reproducibility(seed: int):
+def set_reproducibility(seed: int, deterministic: bool = False):
     random.seed(seed)
-    os.environ['PYTHONHASHSEED'] = str(seed)
     np.random.seed(seed)
 
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
 
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+    if deterministic:
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.deterministic = True
+        torch.use_deterministic_algorithms(True)
+
+        torch.backends.cuda.matmul.allow_tf32 = False
+        torch.backends.cudnn.allow_tf32 = False
+
+
+def seed_worker(worker_id):
+    worker_seed = torch.initial_seed() % 2 ** 32
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)
+    torch.manual_seed(worker_seed)
+
 
 
 def count_parameters(model):
@@ -46,8 +60,7 @@ def get_model_save_path(cfg, save_dir, i, name, prefix="best"):
         filename = f"{prefix}_pMHC_model_{i}.pt"
     else:
         filename = f"{prefix}_model_{i}.pt"
-    path = os.path.join(save_dir, name)
-    os.makedirs(path, exist_ok=True)
-    return os.path.join(path, filename)
+    os.makedirs(save_dir, exist_ok=True)
+    return os.path.join(save_dir, filename)
 
 

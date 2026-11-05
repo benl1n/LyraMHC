@@ -57,7 +57,6 @@ class Capsnet_tester(Basetester):
                             temp_dict[uid] = pred_ic50[i].item()
                 temp_list.append(temp_dict)
 
-        # average score of the emsemble model
         result_dict = temp_list[0]
         if cfg.dataset.params.model_count > 1:
             for k in range(1, cfg.dataset.params.model_count):

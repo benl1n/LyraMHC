@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from omegaconf import DictConfig
-from src.models.components.fusion import LiteBiCrossAttentionFusion
+from src.models.components.fusion import LiteBiCrossAttentionFusion, Hla2pepAttentionFusion, Pep2HLAAttentionFusion
 from src.models.components.predictors import SequencePredictor
 from src.models.components.preprocess import SequenceEncoder
 from src.registry import MODEL_REGISTRY
@@ -29,6 +29,7 @@ class LyraMHC(nn.Module):
             self.fusion_stack_tcr = nn.ModuleList([
                 LiteBiCrossAttentionFusion(**fusion_cfg)
             ])
+        # Hla2pepAttentionFusion
         self.fusion_stack = nn.ModuleList([
             LiteBiCrossAttentionFusion(**fusion_cfg)
         ])

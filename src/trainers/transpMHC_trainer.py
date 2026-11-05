@@ -1,5 +1,8 @@
 # trainers/transpMHC_trainer.py
+import copy
 import datetime
+import os
+
 import numpy as np
 import pandas as pd
 from hydra.core.hydra_config import HydraConfig
@@ -19,7 +22,7 @@ from src.logger import log_to_file, setup_logging
 from src.metrics import get_metrics
 from src.models.components.weight_initial import weight_initial
 
-from src.utils import count_parameters, set_reproducibility
+from src.utils import count_parameters, set_reproducibility, seed_worker
 from src.trainers.train_base import BaseTrainer
 from src.data_provider.transpMHC_data_provider import PeptideHLADataset
 from src.utils import get_data, get_model_save_path
@@ -32,6 +35,7 @@ class ModernTrainer(BaseTrainer):
     def __init__(self, cfg, model):
         self.cfg = cfg
         self.model = model
+        self._model_template = copy.deepcopy(model)
         self.device = cfg.train.device if torch.cuda.is_available() else "cpu"
 
         super().__init__(model=model, config=cfg, device=self.device)
@@ -55,14 +59,19 @@ class ModernTrainer(BaseTrainer):
     def train_epoch(self):
         pass
 
+    def _build_fresh_model(self):
+        model = copy.deepcopy(self._model_template)
+        weight_initial(model)
+        return model.to(self.device)
+
     def train(self, checkpoints_dir, fold, train_loader, val_loader):
 
         cfg = self.cfg
         device = self.device
 
         log_to_file('Begin training model #', fold)
-        model = self.model
-        weight_initial(model)
+        model = self._build_fresh_model()
+        self.model = model
         model.to(device)
         log_to_file('Trainable params', count_parameters(model))
 
@@ -133,15 +142,15 @@ class ModernTrainer(BaseTrainer):
 
                 scheduler.step(avg_val_loss)
 
-                last_path = get_model_save_path(cfg, checkpoints_dir, self.cfg.dataset.params.model_count - 1,
+                last_path = get_model_save_path(cfg, checkpoints_dir, fold,
                                                 cfg.dataset.train.name, prefix="last")
                 torch.save(model.state_dict(), last_path)
                 get_metrics(y_true, y_prob, y_pred, avg_val_loss)
 
-
         # TCR task ---------------------------------------------------------------------
         if cfg.train.task == "TCR":
-            model.load_pretrained_weights(cfg.experiment.best_model_path, freeze=False)
+            best_model_path = os.path.join(cfg.experiment.best_model_path, f"best_pMHC_model_{fold}.pt")
+            model.load_pretrained_weights(best_model_path, freeze=False)
             for epoch in tqdm(range(cfg.dataset.train.epochs), desc=f"Training Fold {fold}"):
                 epoch_start_time = datetime.datetime.now()
                 model.train()
@@ -194,9 +203,9 @@ class ModernTrainer(BaseTrainer):
                 torch.save(model.state_dict(), last_path)
                 get_metrics(y_true, y_prob, y_pred, avg_val_loss)
 
-    def fit(self):
+    def generate(self):
         cfg = self.cfg
-        checkpoints_path = setup_logging(HydraConfig.get().runtime.output_dir)  #
+        set_reproducibility(cfg.train.seed, deterministic=True)  #
 
         train_path, _ = get_data(cfg.train.name,
                                  cfg.train.task,
@@ -206,15 +215,13 @@ class ModernTrainer(BaseTrainer):
         df = df.sort_values(by=list(df.columns)).reset_index(drop=True)
 
         y = df['label'].astype(int).tolist()
-
-        skf = StratifiedKFold(n_splits=cfg.dataset.params.model_count, shuffle=True, random_state=cfg.train.seed)
-
+        split_seed = cfg.dataset.params.get('split_seed', 1)
+        skf = StratifiedKFold(n_splits=cfg.dataset.params.model_count, shuffle=True, random_state=split_seed)
         encoding_func = ENCODING_METHOD_MAP[cfg.train.encoding_method]
 
         for fold, (train_idx, val_idx) in enumerate(skf.split(df, y)):
             g = torch.Generator()
-            g.manual_seed(cfg.train.seed)
-            worker_init_fn = set_reproducibility(cfg.train.seed)
+            g.manual_seed(cfg.train.seed + fold)
 
             train_df = df.iloc[train_idx].reset_index(drop=True)
             val_df = df.iloc[val_idx].reset_index(drop=True)
@@ -231,14 +238,19 @@ class ModernTrainer(BaseTrainer):
                 batch_size=cfg.dataset.train.batch_size,
                 shuffle=True,
                 num_workers=0,
-                worker_init_fn=worker_init_fn,
-                generator=g
+                worker_init_fn=seed_worker,
+                generator=g,
+                in_order=True
 
             )
             val_loader = DataLoader(
                 val_dataset, batch_size=cfg.dataset.train.batch_size, shuffle=False, num_workers=0
             )
-
             log_to_file(f"Fold {fold}", f"Train {len(train_dataset)}, Val {len(val_dataset)}")
 
+            yield fold, train_loader, val_loader
+
+    def fit(self):
+        checkpoints_path = setup_logging(HydraConfig.get().runtime.output_dir)
+        for fold, train_loader, val_loader in self.generate():
             self.train(checkpoints_path, fold, train_loader, val_loader)

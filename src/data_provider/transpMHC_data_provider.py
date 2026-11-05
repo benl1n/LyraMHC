@@ -12,32 +12,68 @@ class PeptideHLADataset(Dataset):
 
         self.task = cfg.train.task
 
-        self.pep_cache, self.hla_cache, self.tcr_cache = {}, {}, {}
+        self.peptides = (
+            df["peptide"]
+            .astype(str)
+            .str.strip()
+            .str.slice(stop=self.pep_max_len)
+            .tolist()
+        )
+        self.hlas = (
+            df["HLA_sequence"]
+            .astype(str)
+            .str.strip()
+            .str.slice(stop=self.hla_max_len)
+            .tolist()
+        )
+
+        hla_names = df["hla"].astype(str).tolist()
+        self.samples = list(zip(hla_names, self.peptides))
+        self.labels = torch.tensor(
+            df["label"].astype(float).to_numpy(),
+            dtype=torch.float32,
+        )
+
+        self.pep_cache = {}
+        self.hla_cache = {}
+        self.tcr_cache = {}
+
+        for pep in dict.fromkeys(self.peptides):
+            pep_tensor, _ = self.encode_func(pep, self.pep_max_len)
+            self.pep_cache[pep] = pep_tensor
+
+        for hla in dict.fromkeys(self.hlas):
+            hla_tensor, _ = self.encode_func(hla, self.hla_max_len)
+            self.hla_cache[hla] = hla_tensor
+
+        if self.task == "TCR":
+            self.tcrs = (
+                df["tcr"]
+                .astype(str)
+                .str.strip()
+                .str.slice(stop=self.tcr_max_len)
+                .tolist()
+            )
+
+            for tcr in dict.fromkeys(self.tcrs):
+                tcr_tensor, _ = self.encode_func(tcr, self.tcr_max_len)
+                self.tcr_cache[tcr] = tcr_tensor
+
+            self.samples = list(zip(hla_names, self.peptides, self.tcrs))
+        else:
+            self.samples = list(zip(hla_names, self.peptides))
 
     def __len__(self):
         return len(self.df)
 
     def __getitem__(self, idx):
-        row = self.df.iloc[idx]
-        pep = str(row['peptide']).strip()[:self.pep_max_len]
-        hla = str(row['HLA_sequence']).strip()[:self.hla_max_len]
-        label = float(row['label'])
-        sample = str(row['hla']), pep
+        hla_tensor = self.hla_cache[self.hlas[idx]]
+        pep_tensor = self.pep_cache[self.peptides[idx]]
+        label = self.labels[idx]
+        sample = self.samples[idx]
 
-        if pep not in self.pep_cache:
-            pep_tensor, _ = self.encode_func(pep, self.pep_max_len)
-            self.pep_cache[pep] = pep_tensor
-        if hla not in self.hla_cache:
-            hla_tensor, _ = self.encode_func(hla, self.hla_max_len)
-            self.hla_cache[hla] = hla_tensor
-
-        # ------------------------------------------------------------------------------
         if self.task == "TCR":
-            tcr = str(row['tcr']).strip()[:self.tcr_max_len]
-            if tcr not in self.tcr_cache:
-                tcr_tensor, _ = self.encode_func(tcr, self.tcr_max_len)
-                self.tcr_cache[tcr] = tcr_tensor
+            tcr_tensor = self.tcr_cache[self.tcrs[idx]]
+            return hla_tensor, pep_tensor, tcr_tensor, label, sample
 
-            return self.hla_cache[hla], self.pep_cache[pep], self.tcr_cache[tcr], torch.tensor(label, dtype=torch.float32), sample
-
-        return  self.hla_cache[hla], self.pep_cache[pep], torch.tensor(label, dtype=torch.float32), sample
+        return hla_tensor, pep_tensor, label, sample
